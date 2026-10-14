@@ -20,7 +20,6 @@
   }
 
   const css = document.createElement('style');
-  css.id = `${id}-style`;
   css.textContent = `
     :root { --cg-toc-width: ${width}px; }
 
@@ -242,10 +241,13 @@
     return text ? text.slice(0, 95) + (text.length > 95 ? '…' : '') : '';
   }
 
+  function headingEls(el) {
+    return [...el.querySelectorAll('h1,h2,h3,h4')]
+      .filter(heading => !heading.closest('pre,code,.sr-only'));
+  }
+
   function readHeadings(el) {
-    const markdown = el.querySelector('.markdown') || el;
-    return [...markdown.querySelectorAll('h1,h2,h3,h4')]
-      .filter(heading => !heading.closest('pre,code,.sr-only'))
+    return headingEls(el.querySelector('.markdown') || el)
       .map(heading => (heading.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 90))
       .filter(Boolean);
   }
@@ -300,18 +302,21 @@
       ? { top: -extent, bottom: 0 } : { top: 0, bottom: extent };
   }
 
+  // Offset of an element from the top edge of the scroller's viewport.
+  function viewOffset(scroller, el) {
+    return el.getBoundingClientRect().top -
+      (scroller === document.scrollingElement ? 0 : scroller.getBoundingClientRect().top);
+  }
+
   function turnPosition(el) {
     const scroller = conversationScroller(el);
-    return scroller.scrollTop + el.getBoundingClientRect().top -
-      (scroller === document.scrollingElement ? 0 : scroller.getBoundingClientRect().top);
+    return scroller.scrollTop + viewOffset(scroller, el);
   }
 
   // Repeat alignment after mounting: virtualization can change measured heights.
   function aimAt(el) {
     const scroller = conversationScroller(el);
-    const r = el.getBoundingClientRect();
-    const baseline = scroller === document.scrollingElement ? 0 : scroller.getBoundingClientRect().top;
-    const delta = r.top - baseline - 65;
+    const delta = viewOffset(scroller, el) - 65;
     if (Math.abs(delta) < 7) return;
     scroller.scrollBy({ top: delta, behavior: 'instant' });
   }
@@ -345,8 +350,7 @@
         const item = findCurrent(key);
         if (item) {
           const target = headingIndex < 0 ? item.el :
-            [...item.el.querySelectorAll('h1,h2,h3,h4')]
-              .filter(h => !h.closest('pre,code,.sr-only'))[headingIndex];
+            headingEls(item.el)[headingIndex];
           aimAt(target || item.el);
           if (target && hasTurnContent(item.el)) {
             if (++aligned >= 3) { found = true; return; }
@@ -500,10 +504,6 @@
     return turnIdentity(candidate) !== previousIdentity;
   }
 
-  function nudgeUp(el) {
-    conversationScroller(el).scrollBy({ top: -250, behavior: 'instant' });
-  }
-
   const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 
   async function goToBeginning() {
@@ -533,7 +533,7 @@
         oldest.scrollIntoView({ behavior: 'instant', block: 'start' });
         await pause(180);
         if (!current()) break;
-        nudgeUp(oldest);
+        conversationScroller(oldest).scrollBy({ top: -250, behavior: 'instant' });
 
         let advanced = false;
         const waitUntil = Math.min(Date.now() + 4500, deadline);
@@ -625,14 +625,6 @@
   });
   observer.observe(document.body, { childList: true, subtree: true });
 
-  let lastUrl = location.href;
-  const interval = setInterval(() => {
-    if (location.href !== lastUrl) {
-      lastUrl = location.href;
-      rebuild();
-    }
-  }, 1500);
-
   function cleanup() {
     stopLoadingTop();
     jumpSerial++;
@@ -640,7 +632,6 @@
     labelCache.clear();
     destroyed = true;
     observer.disconnect();
-    clearInterval(interval);
     clearTimeout(timeout);
     window.removeEventListener('wheel', cancelOnManualScroll, true);
     window.removeEventListener('touchstart', cancelOnManualScroll, true);
