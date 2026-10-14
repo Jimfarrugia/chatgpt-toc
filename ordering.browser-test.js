@@ -1,4 +1,5 @@
-// Run in a long ChatGPT conversation with the current userscript injected.
+// Run with test-helpers.js pasted first, in a long ChatGPT conversation with
+// the current userscript injected.
 // Uses only rendered DOM and scrolling; returns a report or throws on failure.
 //
 // Ground truth is built by scanning the conversation top to bottom and
@@ -6,12 +7,8 @@
 // own fallback-turn indices are page-local and must not be used for ordering.
 (async () => {
   const panel = document.querySelector('#cg-toc-fixed');
-  const root = [...document.querySelectorAll('main')].find(el => el.getBoundingClientRect().height > 0);
-  const scroller = root?.querySelector('.thread-scroll-container');
-  const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
-  function check(condition, message) {
-    if (!condition) throw new Error(message);
-  }
+  const root = testRoot();
+  const scroller = testScroller();
   function cachedKeys() {
     return [...panel.querySelectorAll('.cg-user,.cg-ai')].map(el => el.dataset.messageKey);
   }
@@ -61,9 +58,7 @@
   const top = panel.querySelector('[aria-label="Load older messages and go to beginning"]');
   check(top, 'Wait for any previous Top operation to finish');
   top.click();
-  const deadline = Date.now() + 95000;
-  while (top.textContent !== '↑' && Date.now() < deadline) await pause(100);
-  check(top.textContent === '↑', 'Top timed out');
+  await waitFor(() => top.textContent === '↑', 'Top timed out', 95000);
   await pause(500);
   domOrderSeen = await domOrder();
   const afterTop = compare().length;

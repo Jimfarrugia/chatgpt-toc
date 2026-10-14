@@ -1,19 +1,9 @@
-// In ChatGPT's console: await testConversationSwitch('/c/ANOTHER_EXISTING_CHAT_ID')
+// In ChatGPT's console with test-helpers.js pasted first:
+// await testConversationSwitch('/c/ANOTHER_EXISTING_CHAT_ID')
 // Uses sidebar links (SPA navigation), never reloads or changes chat content.
 async function testConversationSwitch(otherPath) {
   const originalPath = location.pathname;
   const panel = document.querySelector('#cg-toc-fixed');
-  const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
-  const root = () => [...document.querySelectorAll('main')].find(el => el.getBoundingClientRect().height > 0);
-  const scroller = () => root()?.querySelector('.thread-scroll-container');
-  function check(condition, message) {
-    if (!condition) throw new Error(message);
-  }
-  async function waitFor(condition, message) {
-    const deadline = Date.now() + 15000;
-    while (!condition() && Date.now() < deadline) await pause(100);
-    check(condition(), message);
-  }
   function keys(scope) {
     return [...scope.querySelectorAll('[data-chatgpt-search-message-ids]')].map(el =>
       el.getAttribute('data-chatgpt-search-message-ids').trim().split(/\s+/)[0]);
@@ -35,18 +25,18 @@ async function testConversationSwitch(otherPath) {
       const item = panel.querySelector('.cg-user');
       if (switches % 2 && item) item.click();
       else panel.querySelector('[aria-label="Load older messages and go to beginning"]').click();
-      const previous = root();
+      const previous = testRoot();
       navigate(path);
-      await waitFor(() => location.pathname === path && root() !== previous && scroller()?.clientHeight > 0, 'Conversation did not switch');
+      await waitFor(() => location.pathname === path && testRoot() !== previous && testScroller()?.clientHeight > 0, 'Conversation did not switch');
       await waitFor(() => panel.querySelector('[aria-label="Load older messages and go to beginning"]') && panel.querySelector('.cg-user'), 'Panel did not recover');
       await pause(1800);
-      const visible = root();
+      const visible = testRoot();
       const mounted = new Set(keys(visible));
       const hidden = [...document.querySelectorAll('main')].filter(el => el !== visible).flatMap(keys);
       const cached = [...panel.querySelectorAll('.cg-user,.cg-ai')].map(el => el.dataset.messageKey.split(':')[0]);
       check(cached.length && cached.some(key => mounted.has(key)), 'Panel ignored active conversation');
       check(!cached.some(key => hidden.includes(key) && !mounted.has(key)), 'Hidden conversation leaked into cache');
-      const thread = scroller();
+      const thread = testScroller();
       thread.scrollBy({ top: -thread.clientHeight, behavior: 'instant' });
       panel.querySelector('[aria-label="Jump to newest message"]').click();
       await pause(1000);

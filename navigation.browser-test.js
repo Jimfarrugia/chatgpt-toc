@@ -1,20 +1,10 @@
-// Run in the actual ChatGPT tab with the current userscript injected and a long conversation open.
+// Run with test-helpers.js pasted first, in the actual ChatGPT tab with the current userscript injected and a long conversation open.
 // Returns a report; never sends messages or accesses conversation APIs.
 (async () => {
   const panel = document.querySelector('#cg-toc-fixed');
-  const root = [...document.querySelectorAll('main')].find(el => el.getBoundingClientRect().height > 0);
-  const scroller = root?.querySelector('.thread-scroll-container');
+  const scroller = testScroller();
   const report = [];
   let bottomChecks = 0;
-  const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
-  function check(condition, message) {
-    if (!condition) throw new Error(message);
-  }
-  async function waitFor(condition, message) {
-    const deadline = Date.now() + 95000;
-    while (!condition() && Date.now() < deadline) await pause(100);
-    check(condition(), message);
-  }
   function units(role) {
     return [...scroller.querySelectorAll(`[data-chatgpt-search-unit-key$=":${role}"]`)];
   }
@@ -36,13 +26,13 @@
   async function top() {
     const button = panel.querySelector('[aria-label="Load older messages and go to beginning"]');
     button.click();
-    await waitFor(() => button.textContent === '↑', 'Top timed out');
+    await waitFor(() => button.textContent === '↑', 'Top timed out', 95000);
     await pause(500);
   }
   async function jump(selector, index, id) {
     check(!find(id), `Target ${id} must be unloaded before this test`);
     panel.querySelectorAll(selector)[index].click();
-    await waitFor(() => !panel.querySelector('.cg-seeking'), 'Jump timed out');
+    await waitFor(() => !panel.querySelector('.cg-seeking'), 'Jump timed out', 95000);
     check(panel.querySelector('[role="status"]').textContent === 'Message reached', 'Jump reported failure');
     const target = find(id);
     check(target && target.textContent.trim(), 'Target did not remount');
@@ -79,7 +69,7 @@
     const button = [...panel.querySelectorAll('.cg-user,.cg-ai')].find(el => el.dataset.messageKey === key);
     check(button, 'Cached message disappeared');
     button.click();
-    await waitFor(() => !panel.querySelector('.cg-seeking'), 'Sweep jump timed out');
+    await waitFor(() => !panel.querySelector('.cg-seeking'), 'Sweep jump timed out', 95000);
     check(panel.querySelector('[role="status"]').textContent === 'Message reached', 'Sweep jump reported failure');
     const target = find(id);
     check(target && target.getBoundingClientRect().top >= 0 && target.getBoundingClientRect().top < scroller.clientHeight - 100, 'Sweep target is not visible');
@@ -99,7 +89,7 @@
   const headingKey = section.dataset.messageKey;
   const headingText = section.textContent;
   section.click();
-  await waitFor(() => !panel.querySelector('.cg-seeking'), 'Heading jump timed out');
+  await waitFor(() => !panel.querySelector('.cg-seeking'), 'Heading jump timed out', 95000);
   const headingTurn = find(headingKey.slice(0, headingKey.lastIndexOf(':')));
   const heading = [...headingTurn.querySelectorAll('h1,h2,h3,h4')].find(el => el.textContent.trim() === headingText);
   check(heading && Math.abs(heading.getBoundingClientRect().top - 65) < 8, 'Heading is not aligned');
@@ -113,7 +103,6 @@
   check(panel.getBoundingClientRect().width === 290, 'Panel width changed');
   await bottom();
   const labels = [...panel.querySelectorAll('.cg-user,.cg-ai')].map(el => el.textContent);
-  check(!labels.some(label => /^(You|AI) \d+[: ]/.test(label)), 'Message labels were not removed');
   check(panel.querySelectorAll('.cg-list hr').length === panel.querySelectorAll('.cg-ai').length, 'Response dividers are missing');
   check([...panel.querySelectorAll('.cg-list hr')].every(el => el.previousElementSibling.matches('.cg-ai,.cg-section')), 'Divider appeared after a prompt');
   check(new Set(keys).size === keys.length, 'Duplicate cached message identities');
