@@ -24,10 +24,13 @@ Same steps, using the equivalent
 extension: **Create a new script**, paste `chatgpt-toc.js`, save, then reload
 ChatGPT.
 
-> **Note:** the script has only been properly tested with Firefox. There may be
-> unaddressed issues in Chrome and other Chromium-based browsers.
+> **Note:** the script is verified in Chromium-based browsers only. Firefox and
+> Violentmonkey are untested, so issues there are possible.
 
 ## Contributing
 
 Contributions are welcome. Feel free to open a pull request, or report any
 problems with the script by creating a GitHub issue.
+
+Browser regression tests and their results are documented in
+[BROWSER-TESTS.md](BROWSER-TESTS.md).
