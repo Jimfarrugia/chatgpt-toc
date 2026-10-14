@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Conversation TOC (Local)
 // @namespace    local.chatgpt-toc
-// @version      1.9.6
+// @version      1.9.7
 // @description  Docked message navigation with virtualized turn seeking
 // @match        https://chatgpt.com/*
 // @run-at       document-idle
@@ -151,6 +151,9 @@
   // Persist only labels/metadata, never DOM nodes, across virtualization.
   // Clear when navigating to a different conversation.
   const labelCache = new Map();
+  // Adjacency between turns mounted together in the DOM. Relative DOM order is
+  // stable; measured positions drift as virtualization re-estimates heights.
+  const observedOrder = new Map();
   let activeConversation = location.pathname;
   let activeRoot = null;
   let jumpSerial = 0;
@@ -409,6 +412,53 @@
     list.append(button);
   }
 
+  // Topological order over observed DOM adjacency. Measured offsets only
+  // separate clusters that were never mounted together.
+  function orderedEntries() {
+    const byKey = new Map([...labelCache.values()].map(entry => [entry.key, entry]));
+    const indegree = new Map();
+    const addNode = key => {
+      if (!indegree.has(key)) indegree.set(key, 0);
+    };
+    for (const key of byKey.keys()) addNode(key);
+    for (const [from, tos] of observedOrder) {
+      addNode(from);
+      for (const to of tos) {
+        addNode(to);
+        indegree.set(to, indegree.get(to) + 1);
+      }
+    }
+
+    const fallback = (a, b) => {
+      const ao = byKey.get(a)?.endOffset;
+      const bo = byKey.get(b)?.endOffset;
+      return (Number.isFinite(ao) ? ao : Infinity) -
+        (Number.isFinite(bo) ? bo : Infinity) ||
+        (byKey.get(a)?.firstSeen ?? 0) - (byKey.get(b)?.firstSeen ?? 0);
+    };
+
+    const ready = [...indegree.keys()]
+      .filter(key => indegree.get(key) === 0).sort(fallback);
+    const ordered = [];
+    while (ready.length) {
+      const key = ready.shift();
+      ordered.push(key);
+      for (const to of observedOrder.get(key) || []) {
+        const left = indegree.get(to) - 1;
+        indegree.set(to, left);
+        if (left === 0) {
+          ready.push(to);
+          ready.sort(fallback);
+        }
+      }
+    }
+    // Contradictory observations can leave a cycle; emit the rest last.
+    if (ordered.length < indegree.size)
+      for (const key of indegree.keys())
+        if (!ordered.includes(key)) ordered.push(key);
+    return ordered.map(key => byKey.get(key)).filter(Boolean);
+  }
+
   function rebuild() {
     if (destroyed) return;
     const root = conversationRoot();
@@ -417,6 +467,7 @@
       activeConversation = location.pathname;
       activeRoot = root;
       labelCache.clear();
+      observedOrder.clear();
       jumpSerial++;
       pendingJump = null;
       status.textContent = '';
@@ -425,7 +476,8 @@
 
     // Add or update currently observed turns. Do not remove entries just
     // because ChatGPT has unmounted their DOM nodes while scrolling.
-    for (const { el, role, key } of turns()) {
+    const live = turns();
+    for (const { el, role, key } of live) {
       if (!key) continue;
       const freshSnippet = preview(el, role);
       const existing = labelCache.get(key);
@@ -451,13 +503,24 @@
       labelCache.set(key, entry);
     }
 
-    // One numeric key per message. Role and turn keys must not affect order:
-    // ChatGPT reuses those across separately loaded pages of one conversation.
-    const all = [...labelCache.values()].sort((a, b) => {
-      const aOffset = Number.isFinite(a.endOffset) ? a.endOffset : Infinity;
-      const bOffset = Number.isFinite(b.endOffset) ? b.endOffset : Infinity;
-      return aOffset - bOffset || a.firstSeen - b.firstSeen;
-    });
+    // Turns mounted together keep their real DOM order; measured offsets
+    // drift between mounts as virtualization re-estimates heights.
+    const seen = [];
+    const seenSet = new Set();
+    for (const { key } of live)
+      if (key && !seenSet.has(key)) {
+        seenSet.add(key);
+        seen.push(key);
+      }
+    for (let i = 1; i < seen.length; i++) {
+      let after = observedOrder.get(seen[i - 1]);
+      if (!after) observedOrder.set(seen[i - 1], after = new Set());
+      after.add(seen[i]);
+    }
+
+    // Role and turn keys must not affect order: ChatGPT reuses them across
+    // separately loaded pages of one conversation.
+    const all = orderedEntries();
 
     list.replaceChildren();
     for (const entry of all) {
@@ -630,6 +693,7 @@
     jumpSerial++;
     pendingJump = null;
     labelCache.clear();
+    observedOrder.clear();
     destroyed = true;
     observer.disconnect();
     clearTimeout(timeout);

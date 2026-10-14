@@ -57,8 +57,11 @@
   check(panel && scroller, 'Open ChatGPT and inject the script first');
   const top = panel.querySelector('[aria-label="Load older messages and go to beginning"]');
   check(top, 'Wait for any previous Top operation to finish');
-  top.click();
-  await waitFor(() => top.textContent === '↑', 'Top timed out', 95000);
+  // Top is best-effort; a second pass picks up history a stalled load missed.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    top.click();
+    await waitFor(() => top.textContent === '↑', 'Top timed out', 95000);
+  }
   await pause(500);
   domOrderSeen = await domOrder();
   const afterTop = compare().length;

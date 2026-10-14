@@ -1,4 +1,4 @@
-# Navigation and ordering fixes — v1.9.6
+# Navigation and ordering fixes — v1.9.7
 
 ## Installation and regression check
 
@@ -20,38 +20,39 @@ older history with Top, builds ground truth by scanning the conversation top to
 bottom and recording each message's first DOM appearance, then compares the
 panel order with that. ChatGPT's own fallback-turn indices are page-local and
 are not used as a reference. It does not assume every conversation alternates
-user and assistant messages.
+user and assistant messages. Top is best-effort and can stop before the first
+message; the test clicks it twice and retries are safe when a run still fails.
 
-## Long-conversation ordering — v1.9.6
+## Long-conversation ordering — v1.9.7
 
-Reproduced in the supplied “Workflow complexity review” chat. The failing
-versions sorted by a per-page turn index with a role tie-breaker: when two turns
-carried the same index, every prompt was placed before every response, producing
-the reported runs of prompts followed by runs of responses. v1.9.5 replaced the
-index with a shared turn key, but its comparator still consulted role-derived
-unit order and was not a valid total order, so `Array.sort` could still return a
-batched result depending on cache insertion order.
+v1.9.6 ordered messages by measured distance from the end of the conversation.
+That value drifts as virtualization replaces estimated heights with measured
+ones, so cached values taken at different times are not comparable: on the
+“ChatGPT Minimap Alternatives” conversation, a full top-to-bottom scan left
+turn 9's pair sorted before turn 8's.
 
-v1.9.6 gives each message exactly one numeric key: its measured distance from the
-end of the conversation. That value only depends on the content below a message,
-so it is unaffected by older history being prepended, and it never consults role
-or turn identity. Empty placeholder shells are skipped rather than cached with a
-fabricated position.
+v1.9.7 orders by observed DOM adjacency instead. Turns mounted together appear
+in chronological DOM order, which does not depend on heights or on prepended
+history. Each rebuild records the adjacency of the turns it can see; the panel
+order is the topological order of those observations, and measured distances
+from the end only interleave clusters that were never mounted together. The
+adjacency map is cleared with the label cache on conversation switches.
 
-Actual OpenCode Desktop browser results on 2026-10-14:
+Actual OpenCode Desktop browser results on 2026-10-14 (Electron 44.4.5 /
+Chromium 152):
 
-- Two independent fresh loads, each followed by Top and a full top-to-bottom DOM
-  scan: all 58 discovered messages matched the native DOM order exactly, and the
-  role sequence alternated throughout.
-- The bundled `ordering.browser-test.js` passed with `afterTop: 58`,
-  `messages: 58`, `domOrder: 58`, `matched: true`.
-- Navigation regression: 58/58 message jumps, including 52 unloaded targets;
-  12 repeated early/latest jumps; nine Bottom checks; headings, H toggle,
-  heading jump, collapse/reopen, and cache ordering passed.
-- Four conversation switches passed without reload, including message clicks,
-  Bottom, cache isolation, and cancellation of navigation from the old chat.
-- Styling, normal prompt font weight, hidden-by-default headings, and dividers
-  after responses were preserved. JavaScript syntax checks passed.
+- Ordering: the “ChatGPT Minimap Alternatives” conversation (44 messages)
+  passed `ordering.browser-test.js` twice in a row (`afterTop: 44`,
+  `messages: 44`, `domOrder: 44`), including a full top-to-bottom scan between
+  runs.
+- Navigation: passed on the settled conversation (12 repeated early/latest
+  jumps; 19 fold targets, all unloaded before the click; nine Bottom checks;
+  headings, H toggle, collapse/reopen, and panel checks). After the ordering
+  change, a seek smoke re-verified the first prompt, first response, middle
+  message, and latest message at 65 px alignment, and Bottom within 2 px.
+- Conversation switching: four SPA switches passed without reload, with cache
+  isolation, Bottom, and message navigation after each.
+- JavaScript syntax checks passed.
 
 ## Root causes
 
